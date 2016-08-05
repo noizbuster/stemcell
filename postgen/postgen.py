@@ -3,15 +3,16 @@ import shutil
 import os
 import sys
 import re
+import stat
 
+# default values for test
 defaultPathSrc = './'
 defaultPathDest = './postgen-posts'
 defaultPathAssets = './postgen-assets'
 defaultRelativeImagePath = '/postgen-assets/'
 
+# initialize argument parser
 parser = argparse.ArgumentParser(description='Process some integers.')
-# parser.add_argument('integers', metavar='N', type=int, nargs='+',
-#                     help='an integer for the accumulator')
 parser.add_argument('--src', '-s', default=defaultPathSrc, help='path of source directory (default: "./")')
 parser.add_argument('--dest', '-d', default=defaultPathDest,
                     help='path of destination directory (default: "./postgen")')
@@ -20,42 +21,58 @@ parser.add_argument('--assets', '-a', default=defaultPathAssets,
 parser.add_argument('--image', '-i', default=defaultRelativeImagePath,
                     help='path of assets(not a md) destination directory (default: "./postgen")')
 
+# parse arguments
 args = parser.parse_args()
 sourceDir = parser.parse_args()
-print('======================================================================')
-print('Source Directory : ', sourceDir.src)
-print('Destination Directory : ', sourceDir.dest)
-print('Assets Destination Directory : ', sourceDir.assets)
-print('======================================================================')
-
-for file in os.listdir(sourceDir.src):
-    print(file)
-print('======================================================================')
-# print(os.listdir(sourceDir.src))
 src = os.path.abspath(sourceDir.src)
 dest = os.path.abspath(sourceDir.dest)
 asset = os.path.abspath(sourceDir.assets)
 img = sourceDir.image
 
-print('full path of source : ', src)
-print('full path of destination : ', dest)
-print('full path of assets : ', dest)
-print('relative image path: ', img)
-
+# data
 directories = []
 mdFiles = []
 assetFiles = []
-print('======================================================================')
 
 
-def copy_only_markdown(_src, _dest):
+# customized copytree (overwrite support)
+def copytree(_src, _dst, symlinks=False, ignore=None, copy_function=shutil.copy2):
+    if not os.path.exists(_dst):
+        os.makedirs(_dst)
+        shutil.copystat(_src, _dst)
+    lst = os.listdir(_src)
+    if ignore:
+        excl = ignore(_src, lst)
+        lst = [x for x in lst if x not in excl]
+    for item in lst:
+        s = os.path.join(_src, item)
+        d = os.path.join(_dst, item)
+        if symlinks and os.path.islink(s):
+            if os.path.lexists(d):
+                os.remove(d)
+            os.symlink(os.readlink(s), d)
+            try:
+                st = os.lstat(s)
+                mode = stat.S_IMODE(st.st_mode)
+                os.lchmod(d, mode)
+            except:
+                pass  # lchmod not available
+        elif os.path.isdir(s):
+            copytree(s, d, symlinks, ignore, copy_function=copy_function)
+        else:
+            copy_function(s, d)
+
+
+# customized copy function for copy only markdown
+def copy_only_markdown(_src, _dst):
     _ext = os.path.splitext(_src)[1]
     if _ext == '.md':
-        shutil.copy2(_src, _dest)
+        shutil.copy2(_src, _dst)
     else:
         return
 
 
+# string replace for correcting image resources' path
 def replace_word(infile, imgPath):
     if not os.path.isfile(infile):
         print("Error on replace_word, not a regular file: " + infile)
@@ -63,45 +80,45 @@ def replace_word(infile, imgPath):
 
     f1 = open(infile, 'r').read()
     f2 = open(infile, 'w')
-    # to = compile('![$1](' + imgPath + '$2)')
-    # m = f1.replace(old_word, new_word)
-    m = re.sub(r'!\[?(.*)\]\((.*)\)', r'![\1](%s\2)' % (imgPath) , f1)
+    m = re.sub(r'!\[?(.*)\]\((.*)\)', r'![\1](%s\2)' % (imgPath), f1)
     f2.write(m)
 
 
+print('======================================================================')
+print('Source Directory : ', sourceDir.src)
+print('Destination Directory : ', sourceDir.dest)
+print('Assets Destination Directory : ', sourceDir.assets)
+print('full path of source : ', src)
+print('full path of destination : ', dest)
+print('full path of assets : ', dest)
+print('relative image path: ', img)
+print('======================================================================')
+
+# parse directory tree
 for dirname, dirnames, filenames in os.walk(src):
-    # print path to all subdirectories first.
     for subdirname in dirnames:
-        # print(dirname, subdirname)
         path = os.path.join(dirname, subdirname)
         path = path.replace(src + '/', '')
-        # path = os.path.join(dest, path)
         directories.append(path)
 
-    # print path to all filenames.
     for filename in filenames:
         path = os.path.join(dirname, filename)
         path = path.replace(src + '/', '')
         ext = os.path.splitext(os.path.join(dirname, filename))[1]
-        print(ext)
-        # print('f', os.path.join(dirname, filename))
         if ext == '.md':
             path = os.path.join(dest, path)
             mdFiles.append(path)
         else:
             path = os.path.join(asset, path)
             assetFiles.append(path)
-    # Advanced usage:
-    # editing the 'dirnames' list will stop os.walk() from recursing into there.
     if '.git' in dirnames:
-        # don't go into any .git directories.
         dirnames.remove('.git')
-shutil.copytree(sourceDir.src, sourceDir.assets, ignore=shutil.ignore_patterns('*.md'))
-shutil.copytree(sourceDir.src, sourceDir.dest, copy_function=copy_only_markdown)
-for md in mdFiles:
-    replace_word(md, img)
-# '-s', 'source');
-print('======================================================================')
+
+# copy files
+copytree(sourceDir.src, sourceDir.assets, ignore=shutil.ignore_patterns('*.md'))
+copytree(sourceDir.src, sourceDir.dest, copy_function=copy_only_markdown)
+
+# confirm
 print('Directories:')
 for direc in directories:
     print(direc)
@@ -113,4 +130,15 @@ print('======================================================================')
 print('assets:')
 for asset in assetFiles:
     print(asset)
-# print(args.accumulate(args.integers))
+print('======================================================================')
+
+# mutate target file (replace image resource path)
+for idx, md in enumerate(mdFiles):
+    filename = os.path.basename(md)
+    postpath = md
+    postpath = postpath.replace(dest, '')
+    postpath = postpath.replace(filename, '')
+    appendpath = img + postpath + '/'
+    replace_word(md, appendpath)
+
+print('Finished')
