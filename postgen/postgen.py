@@ -39,28 +39,31 @@ assetFiles = []
 def copytree(_src, _dst, symlinks=False, ignore=None, copy_function=shutil.copy2):
     if not os.path.exists(_dst):
         os.makedirs(_dst)
-        shutil.copystat(_src, _dst)
-    lst = os.listdir(_src)
-    if ignore:
-        excl = ignore(_src, lst)
-        lst = [x for x in lst if x not in excl]
-    for item in lst:
-        s = os.path.join(_src, item)
-        d = os.path.join(_dst, item)
-        if symlinks and os.path.islink(s):
-            if os.path.lexists(d):
-                os.remove(d)
-            os.symlink(os.readlink(s), d)
-            try:
-                st = os.lstat(s)
-                mode = stat.S_IMODE(st.st_mode)
-                os.lchmod(d, mode)
-            except:
-                pass  # lchmod not available
-        elif os.path.isdir(s):
-            copytree(s, d, symlinks, ignore, copy_function=copy_function)
-        else:
-            copy_function(s, d)
+        # shutil.copystat(_src, _dst)
+    if os.path.isdir(_src):
+        lst = os.listdir(_src)
+        if ignore:
+            excl = ignore(_src, lst)
+            lst = [x for x in lst if x not in excl]
+        for item in lst:
+            s = os.path.join(_src, item)
+            d = os.path.join(_dst, item)
+            if symlinks and os.path.islink(s):
+                if os.path.lexists(d):
+                    os.remove(d)
+                os.symlink(os.readlink(s), d)
+                try:
+                    st = os.lstat(s)
+                    mode = stat.S_IMODE(st.st_mode)
+                    os.lchmod(d, mode)
+                except:
+                    pass  # lchmod not available
+            elif os.path.isdir(s):
+                copytree(s, d, symlinks, ignore, copy_function=copy_function)
+            else:
+                copy_function(s, d)
+    else:
+        copy_function(_src, _dst)
 
 
 # customized copy function for copy only markdown
@@ -83,17 +86,6 @@ def replace_word(infile, imgPath):
     m = re.sub(r'!\[?(.*)\]\((.*)\)', r'![\1](%s\2)' % (imgPath), f1)
     f2.write(m)
 
-
-print('======================================================================')
-print('Source Directory : ', sourceDir.src)
-print('Destination Directory : ', sourceDir.dest)
-print('Assets Destination Directory : ', sourceDir.assets)
-print('full path of source : ', src)
-print('full path of destination : ', dest)
-print('full path of assets : ', dest)
-print('relative image path: ', img)
-print('======================================================================')
-
 # parse directory tree
 for dirname, dirnames, filenames in os.walk(src):
     for subdirname in dirnames:
@@ -107,38 +99,34 @@ for dirname, dirnames, filenames in os.walk(src):
         ext = os.path.splitext(os.path.join(dirname, filename))[1]
         if ext == '.md':
             path = os.path.join(dest, path)
-            mdFiles.append(path)
+            print('md file')
+            print('filename:\t' + filename)
+            print('documentName:\t' + os.path.splitext(filename)[0])
+            print('dirname:\t' + dirname)
+            documentName = os.path.splitext(filename)[0]
+            print('lastdir:\t' + documentName)
+            srcf = os.path.join(dirname, filename)
+            desf = os.path.join(dest, documentName)
+            print('source_path:\t' + srcf)
+            print('destination:\t' + desf)
+            copytree(srcf, desf)
+            # mdFiles.append(path)
+            # shutil.copy2(path, dest)
         else:
             path = os.path.join(asset, path)
-            assetFiles.append(path)
+            print('not md file')
+            print('filename:\t' + filename)
+            print('dirname:\t' + dirname)
+            print('lastdir:\t' + os.path.basename(os.path.normpath(dirname)))
+            srcf = os.path.join(dirname, filename)
+            desf = os.path.join(dest, os.path.basename(dirname), os.path.basename(dirname))
+            print('source_path:\t' + srcf)
+            print('destination:\t' + desf)
+            copytree(srcf, desf)
+            # shutil.copy2(path, dest)
+            # assetFiles.append(path)
+            # shutil.copy2(path, os.path.join(asset, path, path))
     if '.git' in dirnames:
         dirnames.remove('.git')
-
-# copy files
-copytree(sourceDir.src, sourceDir.assets, ignore=shutil.ignore_patterns('*.md'))
-copytree(sourceDir.src, sourceDir.dest, copy_function=copy_only_markdown)
-
-# confirm
-print('Directories:')
-for direc in directories:
-    print(direc)
-print('======================================================================')
-print('markdown:')
-for md in mdFiles:
-    print(md)
-print('======================================================================')
-print('assets:')
-for asset in assetFiles:
-    print(asset)
-print('======================================================================')
-
-# mutate target file (replace image resource path)
-for idx, md in enumerate(mdFiles):
-    filename = os.path.basename(md)
-    postpath = md
-    postpath = postpath.replace(dest, '')
-    postpath = postpath.replace(filename, '')
-    appendpath = img + postpath + '/'
-    replace_word(md, appendpath)
 
 print('Finished')
